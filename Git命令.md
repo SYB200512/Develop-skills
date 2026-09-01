@@ -12,7 +12,7 @@ Remote:远程仓库
 
 1：在当前目录新建一个Git代码库
 
-$    git init
+**$    git init**
 
 2：新建一个目录，将其初始化为Git代码库
 
