@@ -117,3 +117,37 @@ func main() {
 }
 ```
 
+## 四、gRPC客户端代码解析
+
+```go
+func main() {
+    // 和grpc服务端建立长连接conn
+    conn, _ := grpc.Dial("localhost:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+    defer conn.Close() // 程序结束关闭连接
+
+    // 根据连接，生成UserService客户端对象
+    client := pb.NewUserServiceClient(conn)
+
+    // 直接调用远程方法GetUser，就像本地函数！
+    user, _ := client.GetUser(context.Background(), &pb.GetUserRequest{Id: "1"})
+    fmt.Printf("User: %+v\n", user)
+}
+
+```
+
+1. `grpc.Dial`：建立 TCP 长连接（gRPC 基于 http2 长连接，复用连接，性能高）
+2. `pb.NewUserServiceClient(conn)`：生成客户端，里面自动拥有所有 rpc 方法
+3. `client.GetUser()`：调用远程函数，传入 context 和请求结构体，拿到返回 user ✅ 看起来像调用本地函数，但实际走网络到服务端执行！
+
+> `insecure.NewCredentials()` 不开启 TLS 加密，开发测试用；生产环境必须用 TLS 证书加密。
+
+## 五、完整调用流程
+
+1. 客户端代码执行 `client.GetUser(..., req)`
+2. 客户端 protobuf 把`GetUserRequest`序列化成二进制
+3. 通过 HTTP/2 发送到 gRPC 服务端
+4. 服务端收到二进制，protobuf 反序列化成`GetUserRequest`对象
+5. 调用服务端 `GetUser`业务函数
+6. 业务返回`pb.User`对象，protobuf 序列化为二进制
+7. 传回客户端，客户端反序列化得到 User 结构体
+8. 拿到结果，打印输出
