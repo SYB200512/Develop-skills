@@ -603,7 +603,11 @@ client := redis.NewClusterClient(&redis.ClusterOptions{
 
 ### 2. Sentinel 哨兵模式
 
-哨兵监控主从节点，主节点宕机自动故障转移，切换主库。客户端使用`NewFailoverClient`连接哨兵集群。
+**不拆分数据！所有数据完整存在主节点（master），slave 只是备份。** 哨兵（Sentinel）是独立进程：
+
+1. 持续监控 master 和 slave 节点健康状态
+2. 如果 master 宕机，哨兵集群自动选举一个 slave 提升为新 master
+3. 客户端只连接哨兵，哨兵告诉客户端当前主节点是谁，自动切换地址
 
 ## 八、缓存三大经典问题
 
@@ -627,7 +631,7 @@ client := redis.NewClusterClient(&redis.ClusterOptions{
 
   过期时间增加随机值
 
-  ```
+  ```go
   // 原本30分钟，加上0~300秒随机值，打散过期时间
   expire := 30*time.Minute + time.Duration(rand.Intn(300))*time.Second
   redis.Set(ctx, "user:"+id, data, expire)
