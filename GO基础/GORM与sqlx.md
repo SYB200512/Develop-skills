@@ -226,7 +226,7 @@ sqlx **不是 ORM**，它只是标准库 `database/sql` 的增强封装。
 
 原生 database/sql 需要手动定义变量 scan，非常繁琐；sqlx 简化了映射。
 
-## sqlx 基础 API
+### sqlx 基础 API
 
 - `Get(dest interface{}, query string, args ...interface{}) error`：查询**单行**，映射到结构体
 - `Select(dest interface{}, query string, args ...interface{}) error`：查询**多行**，映射到结构体切片
@@ -248,6 +248,16 @@ err := db.Get(&u, `SELECT id,name,email,age FROM users WHERE id = $1`, 1)
 // 查询多行
 var users []User
 err := db.Select(&users, `SELECT id,name,email,age FROM users WHERE age > $1`, 18)
+
+//NameQuery命名参数
+sqlStr := `SELECT id,name,age FROM users WHERE name LIKE :name AND age > :age`
+args := map[string]any{
+    "name": "%Alice%",
+    "age": 18,
+}
+
+var users []User
+err := sqlxDB.NamedSelect(&users, sqlStr, args)
 ```
 
 优势：
