@@ -241,6 +241,94 @@ func main() {
 }
 ```
 
+### 助理解
+
+#### 阶段 1：程序启动（main 函数从上到下，**只执行一次**）
+
+1. 创建 `exporter`（otlptracehttp.New）
+
+2. 创建 `res` resource，定义服务名
+
+3. 创建 `tp := sdktrace.NewTracerProvider(WithBatcher(exporter), WithResource(res), WithSampler(...))`
+
+4. ✅ 
+
+   ```
+   otel.SetTracerProvider(tp)
+   ```
+
+   > 将我们实例化的 tp 赋值给 OTel 包的全局变量。 后续所有地方调用`otel.Tracer()`，默认从这个全局 tp 获取追踪器。
+
+5. ✅ 
+
+   ```
+   otel.SetTextMapPropagator(otel.GetTextMapPropagator())
+   ```
+
+   > 将传播器存入全局；otelhttp 中间件请求到达时，读取这个全局 propagator 来解析 traceparent header。
+
+6. 注册路由：
+
+   ```
+   otelhttp.NewHandler(业务handler, "POST /api/order")
+   ```
+
+   > 👉 NewHandler**此时不会创建 Span**！只是包装 handler，保存引用，**不会立刻使用全局 tp/propagator**。
+
+7. 启动 http 服务 `ListenAndServe`，阻塞等待请求。
+
+> ⚠️重点：**启动阶段只是注册组件，不会产生任何 Span。Span 只有 HTTP 请求到达的时候才会创建。**
+
+#### 阶段 2：HTTP 请求到达（每来一次请求，完整跑一遍）
+
+1. 请求抵达服务，进入 otelhttp 中间件逻辑
+
+2. 中间件读取 HTTP Header `traceparent`
+
+3. 读取全局 TextMapPropagator
+
+   ，调用
+
+   ```
+   propagator.Extract()
+   ```
+
+   - 解析 traceparent，拿到上游 TraceID、父 SpanID，生成携带追踪信息的新 ctx
+
+4. **读取全局 TracerProvider**，用 tp 创建**根 Span：POST /api/order**
+
+5. 把新 ctx 传给你的业务 `handleOrder(r *http.Request)`
+
+6. `ctx := r.Context()` 在 handler 拿到带追踪信息的上下文
+
+7. ```
+   tracer := otel.Tracer("user-service-handler")
+   ```
+
+   > 从**全局 TracerProvider**获取 tracer 对象
+
+8. ```
+   ctx, spanValidate := tracer.Start(ctx, "Validate Order")
+   ```
+
+   > 根据 ctx 里的父 Span（根 Span）创建子 Span
+
+9. 业务执行，sleep 模拟耗时；defer 触发 `spanValidate.End()` 结束子 Span
+
+10. 后续继续创建其他子 Span：Create Order、Publish Event
+
+11. 业务 handler 执行完毕，回到 otelhttp 中间件
+
+12. 中间件自动调用根 Span 的 End ()，记录 http 状态码、耗时
+
+13. Batcher 批量收集 Span，**异步**交给 exporter，发送到 Jaeger
+
+#### 阶段 3：程序退出（触发 defer）
+
+1. `tp.Shutdown(ctx)`：刷新 Batcher 中剩余 Span，关闭 exporter 连接
+
+
+
 ## 四、Trace 链路示例还原
 
 举例：
@@ -284,3 +372,29 @@ TraceID: abc123（整条链路共用）
 3. 使用 OTel 提供的 http/gRPC 中间件，自动埋点（自动创建 Span，自动透传 traceparent）；
 4. 本地启动 Jaeger 接收 Trace；
 5. 请求服务，访问 Jaeger UI，查看可视化 Trace 链路。
+
+
+
+
+
+```go
+func main() {
+     // 先初始化 tracerProvider（前面写的 initTracer）
+	tp, err := initTracer()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer tp.Shutdown(context.Background())
+
+    // 重点：用 otelhttp.NewHandler 包装我们自己的 handleOrder
+    // 这一步就是注册追踪中间件！
+	http.Handle("/api/order", otelhttp.NewHandler(
+		http.HandlerFunc(handleOrder),
+		"POST /api/order", // 根Span的名字，就是链路里的 POST /api/order
+	))
+
+  	log.Println("server start :8080")
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+```
+
