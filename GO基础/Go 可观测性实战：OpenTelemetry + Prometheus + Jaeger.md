@@ -87,8 +87,9 @@ var (
 )
 
 // 初始化 OpenTelemetry：Trace + Metrics
-//创建服务资源
 func initOTEL(ctx context.Context) (shutdown func(), err error) {
+    
+    //创建服务资源
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
 			semconv.ServiceName("go-otel-demo"),
@@ -100,13 +101,13 @@ func initOTEL(ctx context.Context) (shutdown func(), err error) {
 	}
 
 	// 1. Jaeger Trace Exporter（trace exporter追踪数据搬运工）
-exporter, err := otlptracehttp.New(context.Background(),
-    otlptracehttp.WithEndpoint("localhost:4318"),
-    otlptracehttp.WithInsecure(), // 本地测试关闭TLS；生产去掉，用HTTPS
-)
-if err != nil {
-    return nil, fmt.Errorf("创建otlp exporter失败: %w", err)
-}
+    exporter, err := otlptracehttp.New(context.Background(),
+         otlptracehttp.WithEndpoint("localhost:4318"),
+         otlptracehttp.WithInsecure(), // 本地测试关闭TLS；生产去掉，用HTTPS
+    )
+   if err != nil {
+      return nil, fmt.Errorf("创建otlp exporter失败: %w", err)
+   }
     
     //newprevider:追踪大总管TP
 	tp := tracesdk.NewTracerProvider(
@@ -121,7 +122,12 @@ if err != nil {
 	if err != nil {
 		return nil, err
 	}
-	mp := metric.NewMeterProvider(metric.WithReader(metricExp), metric.WithResource(res))
+    
+    //指标的总工厂
+	mp :=metric.NewMeterProvider(
+        metric.WithReader(metricExp),
+        metric.WithResource(res)
+    )
 	otel.SetMeterProvider(mp)
 
 	shutdown = func() {
@@ -207,6 +213,22 @@ func main() {
 	_ = http.ListenAndServe(":8080", handler)
 }
 ```
+
+完整链路
+
+1. 客户端访问 `http://127.0.0.1:8080/api/req`
+2. 请求进入 `otelhttp` 中间件：自动创建根 span，把 trace 上下文放入 r.Context ()
+3. 请求转发给 mux，匹配路由，进入`handleRequest(w,r)`
+4. handleRequest 内部：
+   - `tracer.Start(r.Context(), "handleRequest")`：创建子 span，生成携带 trace 信息的新 ctx
+   - zap.InfoContext 打印带 traceId 日志
+   - prometheus timer 计时
+   - 调用 bizLogic (ctx)，bizLogic 创建下一级子 span
+5. 业务处理完成，返回 http 响应
+6. 函数退出，依次执行 defer：timer 记录耗时、span.End () 上报链路
+7. 进程退出时：执行 shutdown ()、logger.Sync ()，刷剩余数据
+
+
 
 ## 3. 本地启动依赖（Docker）
 
