@@ -5,6 +5,70 @@
 JWT（JSON‑Web‑Token）：登录成功后，服务端生成一段加密字符串返回给前端；
 前端后续每次请求在请求头 `Authorization` 带上这个 token，服务端校验 token，判断用户是否登录。
 
+一个常见 JWT 长这样：
+
+```text
+xxxxx.yyyyy.zzzzz
+```
+
+它由三部分组成，用两个点分隔：
+
+### 1. Header（头部）
+
+描述这个 token 的类型和签名算法，通常是 JSON：
+
+```json
+{
+  "alg": "HS256",
+  "typ": "JWT"
+}
+```
+
+
+
+然后进行 Base64Url 编码。`alg` 表示签名算法，如 HS256、RS256、ES256；`typ` 一般是 JWT。
+
+### 2. Payload（载荷）
+
+存放实际要传递的数据，也就是 claims（声明）。例如：
+
+```json
+{
+  "sub": "123456",
+  "name": "Tom",
+  "role": "admin",
+  "exp": 1710000000
+}
+```
+
+Payload 也是 Base64Url 编码，**不是加密**，所以别人拿到 token 后可以直接解码查看内容。
+
+Payload 里的声明通常分三类：
+
+- **注册声明**：标准字段，如
+  - `iss`：签发者
+  - `sub`：主题，通常是用户 ID
+  - `aud`：接收方
+  - `exp`：过期时间
+  - `nbf`：生效时间
+  - `iat`：签发时间
+  - `jti`：JWT 唯一 ID
+- **公共声明**：可以自定义，但应避免命名冲突。
+- **私有声明**：业务双方约定的字段，如 `role`、`userId`、`tenantId`。
+
+### 3. Signature（签名）
+
+对前两部分进行签名，防止 token 被篡改。例如 HS256 算法大致是：
+
+```text
+HMACSHA256(
+  base64UrlEncode(header) + "." + base64UrlEncode(payload),
+  secret
+)
+```
+
+服务端收到 JWT 后，会重新计算签名并比对。如果内容被改过，签名就对不上。
+
 流程：
 
 1. 用户登录 → 账号密码校验成功 → 服务端生成 JWT 返回前端
